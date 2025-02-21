@@ -82,8 +82,12 @@ int main(void)
 	 * TA_HELLO_WORLD_CMD_INC_VALUE is the actual function in the TA to be
 	 * called.
 	 */
-	printf("Invoking TA to increment %d\n", op.params[0].value.a);
-	res = TEEC_InvokeCommand(&sess, TA_HELLO_WORLD_CMD_INC_VALUE, &op,
+	printf("hello mister we are starting the ta\n");
+	printf("pain");
+	printf("Invoking TAAAA to increment %d\n", op.params[0].value.a);
+	char painstrtest[] = "Hello WORLDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD";
+	printf(painstrtest);
+	res = TEEC_InvokeCommand(&sess, TA_HELLO_WORLD_HASH_TA_MEMORY, &op,
 				 &err_origin);
 	if (res != TEEC_SUCCESS)
 		errx(1, "TEEC_InvokeCommand failed with code 0x%x origin 0x%x",

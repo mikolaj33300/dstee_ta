@@ -27,8 +27,12 @@
 
 #include <tee_internal_api.h>
 #include <tee_internal_api_extensions.h>
-
+#include <stdint.h>
 #include <hello_world_ta.h>
+#include <pta_attestation.h>
+#include "utee_defines.h"
+
+#define ATT_MAX_KEYSZ	4096
 
 /*
  * Called when the instance of the TA is created. This is the first call in
@@ -36,6 +40,7 @@
  */
 TEE_Result TA_CreateEntryPoint(void)
 {
+	DMSG("hello mister");
 	DMSG("has been called");
 
 	return TEE_SUCCESS;
@@ -73,7 +78,7 @@ TEE_Result TA_OpenSessionEntryPoint(uint32_t param_types,
 	/* Unused parameters */
 	(void)&params;
 	(void)&sess_ctx;
-
+	
 	/*
 	 * The DMSG() macro is non-standard, TEE Internal API doesn't
 	 * specify any means to logging from a TA.
@@ -91,8 +96,149 @@ TEE_Result TA_OpenSessionEntryPoint(uint32_t param_types,
 void TA_CloseSessionEntryPoint(void __maybe_unused *sess_ctx)
 {
 	(void)&sess_ctx; /* Unused parameter */
-	IMSG("Goodbye!\n");
+	IMSG("BYE BYE!\n");
 }
+
+void GetFPs(int i, TEE_TASessionHandle sess, uint32_t param_types, TEE_Param params[4], uint32_t ret_orig, volatile bool needsAttestation){
+	void** testBufToOverflow[5];
+	void* *fp;
+	void* the_label_pointer = &&localStackAttester;
+
+	void jumpToAttesterGetFPs () {
+		IMSG("The label pointer: %p", the_label_pointer);
+	}
+	
+
+	for(int j = 0; j<5; j++){
+		testBufToOverflow[j] = 0xffffff;
+	}
+
+	if(i ==  0){
+		//goto localStackAttester;
+		void* sp;
+		asm volatile ("mov %0, sp\n\t"
+     		: "=r" (sp)
+    	);
+
+	IMSG("SP is now in infinite loop: %p", the_label_pointer);
+		while(true){
+		
+		}
+		TEE_InvokeTACommand(sess,TEE_TIMEOUT_INFINITE, PTA_ATTESTATION_HASH_TA_MEMORY ,param_types, params, &ret_orig);
+		return;
+	}
+	if(i == 5){
+		for(int j = 0; j<8; j++){
+			testBufToOverflow[j] = 0xbbbbbb;
+		}
+	}
+	asm volatile ("mov %0, fp\n\t"
+     : "=r" (fp)
+    );
+
+	IMSG("FP is now in base: %p", fp);
+	
+	void* *fp2 = *fp;
+	IMSG("FP2 is now in base: %p", *(fp-1));
+	GetFPs(i-1, sess, param_types, params, ret_orig, false);
+	asm volatile ("nop"::);
+	asm volatile ("nop"::);
+	asm volatile ("nop"::);
+	localStackAttester:
+	asm volatile ("nop"::);
+	asm volatile ("nop"::);
+	asm volatile ("nop"::);
+	if(needsAttestation){
+		asm volatile ("nop"::);
+		asm volatile ("nop"::);
+		IMSG(testBufToOverflow[0]);
+		asm volatile ("nop"::);
+		asm volatile ("nop"::);
+	}
+	asm volatile ("nop"::);
+	asm volatile ("nop"::);
+	asm volatile ("nop"::);
+}
+
+//new: creates a new TA session, then new command
+static TEE_Result ta_entry_attestation(uint32_t param_types, TEE_Param params[4])
+{
+	IMSG("Entered attestation");
+
+	TEE_Time time;
+	TEE_GetSystemTime(&time);
+	IMSG("This is the cntpct: %u", time.seconds);
+
+
+	uint8_t nonce[6] = { 0xa0, 0x98, 0x76, 0x54, 0x32, 0x10 }; // voor replay attacks?
+	uint8_t measurement[TEE_SHA256_HASH_SIZE + ATT_MAX_KEYSZ / 8] = { };
+	void* *testPointer = 0xFFFFFF;
+	void* *testPointer2 = 0xFFFFFA;
+	IMSG("Testpointer1 res: %p", testPointer);
+	IMSG("Testpointer2 res: %p", testPointer2);
+	TEE_Result res = TEE_ERROR_GENERIC;
+	//TEE_Session session = { };
+	uint32_t ret_orig = 0;
+	
+	param_types = TEE_PARAM_TYPES(TEE_PARAM_TYPE_MEMREF_INPUT,
+					 TEE_PARAM_TYPE_MEMREF_OUTPUT,
+					 TEE_PARAM_TYPE_NONE, TEE_PARAM_TYPE_NONE);
+					 
+	params[0].memref.buffer = nonce;
+	params[0].memref.size = sizeof(nonce);
+	params[1].memref.buffer = measurement;
+	params[1].memref.size = sizeof(measurement);
+	
+	TEE_TASessionHandle sess = TEE_HANDLE_NULL;
+	TEE_UUID att_uuid = PTA_ATTESTATION_UUID;
+	//IMSG(myArray[2]);
+
+	// TEEC niet bruikbaar vanaf TA? (ja)
+
+	void** fp;
+	asm volatile ("mov %0, fp\n\t"
+     : "=r" (fp)
+    );
+
+	IMSG("FP is now before base: %p", fp);
+
+	void* sp;
+	asm volatile ("mov %0, sp\n\t"
+     : "=r" (sp)
+    );
+
+	IMSG("SP is now before base: %p", sp);
+	
+	void* *fp2 = *fp;
+	IMSG("FP2 is now before base: %p", *(fp-1));
+	
+	void* *fp3 = *fp2;
+	IMSG("FP3 is now before base: %p", *(fp2-1));
+	res = TEE_OpenTASession(&att_uuid, TEE_TIMEOUT_INFINITE, 0, NULL, &sess,
+				&ret_orig);
+	IMSG("Precheck res: %d", res);
+	if (res) {
+		IMSG("Going to out");
+		//goto out;
+	}
+
+	GetFPs(10, sess, param_types, params, &ret_orig, false);
+
+	res = TEE_InvokeTACommand(sess, TEE_TIMEOUT_INFINITE, PTA_ATTESTATION_HASH_TA_MEMORY, param_types, params, &ret_orig);
+				  
+
+	IMSG("FP is now after: %p", fp);
+
+	IMSG("Attestation complete");
+	IMSG("Param types: %d", param_types);
+
+	TEE_CloseTASession(sess);
+
+	IMSG("Res: %d", res);
+
+	return res;
+}
+//stop
 
 static TEE_Result inc_value(uint32_t param_types,
 	TEE_Param params[4])
@@ -149,6 +295,10 @@ TEE_Result TA_InvokeCommandEntryPoint(void __maybe_unused *sess_ctx,
 		return inc_value(param_types, params);
 	case TA_HELLO_WORLD_CMD_DEC_VALUE:
 		return dec_value(param_types, params);
+	//new: invoking command from main.c, this will run the function in this file.
+	case TA_HELLO_WORLD_HASH_TA_MEMORY:
+		return ta_entry_attestation(param_types, params);
+	//stop
 	default:
 		return TEE_ERROR_BAD_PARAMETERS;
 	}
